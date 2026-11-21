@@ -1,0 +1,705 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<title>智慧門鎖 MQTT 架構</title>
+<style>
+  /* ---------- Design tokens: light (bare :root) ---------- */
+  :root {
+    --ground:      #f2f3f0;
+    --surface:     #ffffff;
+    --surface-2:   #eaece7;
+    --surface-3:   #e0e3dc;
+    --ink:         #1b1f23;
+    --ink-soft:    #565d64;
+    --ink-faint:   #868d92;
+    --line:        #d3d7d0;
+    --line-soft:   #e3e6df;
+
+    --brass:       #9a6a1e;   /* accent — lock brass */
+    --brass-deep:  #7d550f;
+    --brass-wash:  #f2e7d0;
+
+    --steel:       #37687f;   /* device / connectivity layer */
+    --steel-wash:  #dfeaf0;
+
+    --ok:          #2f7a4c;
+    --ok-wash:     #dcefe1;
+    --warn:        #a9781f;
+    --warn-wash:   #f4e8cf;
+    --err:         #ad3a37;
+    --err-wash:    #f4dedc;
+    --info:        #3a6480;
+    --info-wash:   #dde9f0;
+
+    --shadow:      0 1px 2px rgba(20,24,28,.06), 0 8px 24px -12px rgba(20,24,28,.18);
+    --radius:      10px;
+    --maxw:        1120px;
+  }
+  /* ---------- Dark: system default (unstamped) + explicit dark ---------- */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #15181b;
+      --surface:   #1d2126;
+      --surface-2: #252a30;
+      --surface-3: #2d333a;
+      --ink:       #e7eae5;
+      --ink-soft:  #a4aaa2;
+      --ink-faint: #7b8179;
+      --line:      #333940;
+      --line-soft: #272c32;
+
+      --brass:      #d6a44e;
+      --brass-deep: #e6bd74;
+      --brass-wash: #33290f;
+
+      --steel:      #6ba1bd;
+      --steel-wash: #1a2c36;
+
+      --ok:         #5cbb7f;
+      --ok-wash:    #16281c;
+      --warn:       #d6a44e;
+      --warn-wash:  #2e2610;
+      --err:        #e0716c;
+      --err-wash:   #2f1615;
+      --info:       #6ba1bd;
+      --info-wash:  #14262f;
+
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #15181b;
+    --surface:   #1d2126;
+    --surface-2: #252a30;
+    --surface-3: #2d333a;
+    --ink:       #e7eae5;
+    --ink-soft:  #a4aaa2;
+    --ink-faint: #7b8179;
+    --line:      #333940;
+    --line-soft: #272c32;
+
+    --brass:      #d6a44e;
+    --brass-deep: #e6bd74;
+    --brass-wash: #33290f;
+
+    --steel:      #6ba1bd;
+    --steel-wash: #1a2c36;
+
+    --ok:         #5cbb7f;
+    --ok-wash:    #16281c;
+    --warn:       #d6a44e;
+    --warn-wash:  #2e2610;
+    --err:        #e0716c;
+    --err-wash:   #2f1615;
+    --info:       #6ba1bd;
+    --info-wash:  #14262f;
+
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, "Noto Sans TC", sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Typography ---------- */
+  h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 600; letter-spacing: -.01em; }
+  h1 { font-size: clamp(1.9rem, 1.2rem + 2.6vw, 3rem); line-height: 1.08; letter-spacing: -.02em; }
+  h2 { font-size: clamp(1.3rem, 1rem + 1vw, 1.7rem); }
+  h3 { font-size: 1.02rem; }
+  p  { margin: 0; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem; font-weight: 500; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--brass-deep);
+  }
+  .lead { color: var(--ink-soft); font-size: clamp(1rem, .95rem + .3vw, 1.15rem); max-width: 62ch; }
+  .muted { color: var(--ink-soft); }
+  .faint { color: var(--ink-faint); }
+
+  /* ---------- Header ---------- */
+  header.hero {
+    border-bottom: 1px solid var(--line);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--brass-wash) 55%, var(--surface)) 0%, var(--surface) 78%);
+    position: relative;
+  }
+  .hero-inner { padding: clamp(40px, 6vw, 84px) 0 clamp(30px, 4vw, 52px); }
+  .hero h1 { margin-top: 14px; max-width: 20ch; }
+  .hero .lead { margin-top: 18px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .chip {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem; font-weight: 500;
+    padding: 5px 11px; border-radius: 100px;
+    background: var(--surface); border: 1px solid var(--line);
+    color: var(--ink-soft);
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  /* theme toggle */
+  .toggle {
+    position: absolute; top: 18px; right: 24px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: "IBM Plex Mono", monospace; font-size: .74rem;
+    background: var(--surface); border: 1px solid var(--line); color: var(--ink-soft);
+    border-radius: 100px; padding: 6px 12px; cursor: pointer;
+  }
+  .toggle:hover { color: var(--ink); border-color: var(--brass); }
+  .toggle:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  /* ---------- Sections ---------- */
+  section { padding: clamp(44px, 6vw, 76px) 0; border-bottom: 1px solid var(--line-soft); }
+  .sec-head { margin-bottom: 30px; }
+  .sec-head h2 { margin-top: 8px; }
+  .sec-head p { margin-top: 12px; }
+
+  figure { margin: 0; }
+  figcaption { margin-top: 14px; color: var(--ink-soft); font-size: .9rem; max-width: 66ch; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+  .fig-frame {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: clamp(16px, 3vw, 30px);
+    box-shadow: var(--shadow); overflow-x: auto;
+  }
+  svg { max-width: 100%; height: auto; display: block; }
+
+  /* ---------- Layered architecture (CSS) ---------- */
+  .stack { display: flex; flex-direction: column; gap: 0; }
+  .layer {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 18px;
+    display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center;
+    box-shadow: var(--shadow); position: relative;
+  }
+  .layer-label { border-right: 1px solid var(--line-soft); padding-right: 14px; }
+  .layer-label .k { font-family: "IBM Plex Mono", monospace; font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  .layer-label .n { font-weight: 600; font-size: 1.04rem; margin-top: 3px; }
+  .layer-label .d { font-size: .8rem; color: var(--ink-soft); margin-top: 4px; line-height: 1.45; }
+  .nodes { display: flex; flex-wrap: wrap; gap: 10px; }
+  .node {
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px;
+    background: var(--surface-2); min-width: 0;
+  }
+  .node .nt { font-weight: 600; font-size: .92rem; }
+  .node .ns { font-size: .76rem; color: var(--ink-soft); margin-top: 2px; }
+  .node .ns.mono { font-family: "IBM Plex Mono", monospace; font-size: .72rem; }
+  .node.device { border-color: color-mix(in srgb, var(--steel) 45%, var(--line)); background: var(--steel-wash); }
+  .node.brass  { border-color: color-mix(in srgb, var(--brass) 45%, var(--line)); background: var(--brass-wash); }
+
+  .connector { display: grid; grid-template-columns: 150px 1fr; gap: 18px; padding: 2px 18px; }
+  .connector .lbl { grid-column: 2; display: flex; align-items: center; gap: 10px; color: var(--ink-soft); font-size: .82rem; padding: 7px 0; }
+  .connector .arw { color: var(--brass); font-size: 1.1rem; line-height: 1; }
+  .connector .lbl .mono { font-family: "IBM Plex Mono", monospace; font-size: .76rem; color: var(--ink); }
+
+  .crosscut {
+    margin-top: 18px; display: flex; align-items: flex-start; gap: 12px;
+    background: color-mix(in srgb, var(--brass-wash) 40%, var(--surface));
+    border: 1px dashed var(--brass); border-radius: var(--radius); padding: 14px 16px;
+  }
+  .crosscut .tag { font-family: "IBM Plex Mono", monospace; font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--brass-deep); font-weight: 600; white-space: nowrap; padding-top: 2px; }
+  .crosscut .body { font-size: .88rem; color: var(--ink-soft); }
+  .crosscut .body b { color: var(--ink); }
+
+  /* ---------- Topic list ---------- */
+  .topics { display: grid; gap: 10px; }
+  .topic-row {
+    display: grid; grid-template-columns: minmax(220px, 1.2fr) 90px 1.6fr; gap: 14px; align-items: center;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 11px 15px;
+  }
+  .topic-row code { font-family: "IBM Plex Mono", monospace; font-size: .84rem; color: var(--ink); word-break: break-all; }
+  .topic-row .dir { font-family: "IBM Plex Mono", monospace; font-size: .72rem; text-align: center; padding: 3px 0; border-radius: 5px; font-weight: 500; }
+  .dir.up   { background: var(--steel-wash); color: var(--steel); }
+  .dir.down { background: var(--brass-wash); color: var(--brass-deep); }
+  .topic-row .desc { font-size: .85rem; color: var(--ink-soft); }
+  .topic-row .desc b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Cards grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 18px 20px;
+  }
+  .card .ic { font-family: "IBM Plex Mono", monospace; font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--brass-deep); font-weight: 600; }
+  .card h3 { margin-top: 8px; }
+  .card p { margin-top: 8px; font-size: .9rem; color: var(--ink-soft); }
+  .card p .mono { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--ink); }
+
+  /* ---------- Comparison table ---------- */
+  .tbl-frame { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td { text-align: left; padding: 13px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: top; font-size: .9rem; }
+  thead th { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.dim { color: var(--ink-soft); }
+  td .mono, th .mono { font-family: "IBM Plex Mono", monospace; font-size: .82rem; }
+  td b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Footer note ---------- */
+  .endnote { padding: 40px 0 64px; color: var(--ink-soft); font-size: .88rem; }
+  .endnote .mono { font-family: "IBM Plex Mono", monospace; color: var(--ink); font-size: .84rem; }
+
+  @media (max-width: 720px) {
+    .layer, .connector { grid-template-columns: 1fr; }
+    .layer-label { border-right: none; border-bottom: 1px solid var(--line-soft); padding-right: 0; padding-bottom: 12px; }
+    .connector .lbl { grid-column: 1; }
+    .topic-row { grid-template-columns: 1fr; gap: 6px; }
+    .topic-row .dir { width: fit-content; padding: 3px 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="hero">
+  <button class="toggle" id="themeToggle" aria-label="切換明暗主題">◐ 主題</button>
+  <div class="wrap hero-inner">
+    <div class="eyebrow">智慧門鎖 · 裝置連線與後端事件架構</div>
+    <h1>智慧門鎖 MQTT 系統架構</h1>
+    <p class="lead">
+      把<b>裝置連線（Device Connectivity）</b>與<b>後端業務事件（Backend Domain Event）</b>切成兩層:
+      前段用 MQTT Broker 撐長連線與 Pub/Sub,後段用內部事件匯流排做 Event-driven,
+      中間以「指令狀態機 + 應用層冪等」保證開鎖指令<b>不會因重送而重複執行</b>。
+    </p>
+    <div class="chips">
+      <span class="chip"><b>.NET&nbsp;10</b></span>
+      <span class="chip">MQTT&nbsp;client&nbsp;· <b>MQTTnet</b></span>
+      <span class="chip">狀態機&nbsp;· <b>手寫 enum</b></span>
+      <span class="chip">Broker&nbsp;· <b>EMQX&nbsp;/&nbsp;Mosquitto</b></span>
+      <span class="chip">內部匯流排&nbsp;· <b>Kafka&nbsp;/&nbsp;RabbitMQ</b></span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===================== 分層架構 ===================== -->
+  <section id="layers">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">分層總覽</div>
+        <h2>四層架構:從鎖端到 downstream</h2>
+        <p class="lead">邊緣裝置只認 MQTT;Device Service 是「連線世界」與「內部事件世界」的邊界。
+          越過這道邊界,MQTT 的裝置訊息就轉成 domain event,由 Kafka／RabbitMQ 扇出給各 consumer——
+          兩邊各自伸縮、互不牽動。</p>
+      </div>
+
+      <div class="stack">
+        <div class="layer">
+          <div class="layer-label">
+            <div class="k">Layer 1 · Edge</div>
+            <div class="n">邊緣裝置</div>
+            <div class="d">門鎖韌體內建 MQTT client</div>
+          </div>
+          <div class="nodes">
+            <div class="node device"><div class="nt">門鎖 A</div><div class="ns mono">clientId = lock-A</div></div>
+            <div class="node device"><div class="nt">門鎖 B</div><div class="ns mono">clientId = lock-B</div></div>
+            <div class="node device"><div class="nt">門鎖 C…N</div><div class="ns">KeepAlive · LWT 遺囑</div></div>
+          </div>
+        </div>
+
+        <div class="connector">
+          <div class="lbl"><span class="arw">↕</span>
+            <span><span class="mono">MQTT over TLS</span> · 長連線 Pub/Sub · QoS 1 · 每裝置一條 session</span></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-label">
+            <div class="k">Layer 2 · Connectivity</div>
+            <div class="n">MQTT Broker</div>
+            <div class="d">長連線與訊息路由的中樞</div>
+          </div>
+          <div class="nodes">
+            <div class="node"><div class="nt">Pub / Sub 路由</div><div class="ns">依 topic 分派</div></div>
+            <div class="node"><div class="nt">Keep-Alive</div><div class="ns">PINGREQ / PINGRESP</div></div>
+            <div class="node"><div class="nt">Last Will (LWT)</div><div class="ns">代發離線狀態</div></div>
+            <div class="node"><div class="nt">ACL</div><div class="ns">topic 層級授權</div></div>
+          </div>
+        </div>
+
+        <div class="connector">
+          <div class="lbl"><span class="arw">↕</span>
+            <span>後端以 MQTT client 身分訂閱／發佈 · <span class="mono">command / ack / result / status</span></span></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-label">
+            <div class="k">Layer 3 · Backend</div>
+            <div class="n">Device Service</div>
+            <div class="d">連線層 ↔ 事件層的邊界</div>
+          </div>
+          <div class="nodes">
+            <div class="node brass"><div class="nt">指令派送</div><div class="ns">發 command + TTL</div></div>
+            <div class="node brass"><div class="nt">指令狀態機</div><div class="ns">Pending→…→Executed</div></div>
+            <div class="node brass"><div class="nt">冪等處理</div><div class="ns">CommandId 去重</div></div>
+            <div class="node"><div class="nt">lastSeen 快取</div><div class="ns">裝置在線狀態</div></div>
+          </div>
+        </div>
+
+        <div class="connector">
+          <div class="lbl"><span class="arw">↓</span>
+            <span>裝置訊息 → <span class="mono">domain event</span>(解耦點:MQTT 之後不再是 MQTT)</span></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-label">
+            <div class="k">Layer 4 · Event-driven</div>
+            <div class="n">內部事件匯流排</div>
+            <div class="d">Kafka / RabbitMQ 扇出</div>
+          </div>
+          <div class="nodes">
+            <div class="node"><div class="nt">通知服務</div><div class="ns">開鎖推播</div></div>
+            <div class="node"><div class="nt">稽核 Log</div><div class="ns">誰在何時開了哪把鎖</div></div>
+            <div class="node"><div class="nt">數據分析</div><div class="ns">使用行為</div></div>
+            <div class="node"><div class="nt">帳務 / 告警</div><div class="ns">異常偵測</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="crosscut">
+        <div class="tag">橫切 · Security</div>
+        <div class="body">
+          自邊緣到 Broker 全程 <b>TLS</b>;規模允許時升級 <b>Device Certificate / mTLS</b> 做雙向驗證,
+          搭配 <b>topic 層級 ACL</b>(每把鎖只能碰自己的 topic)與<b>憑證輪替(Credential Rotation)</b>。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== Topic 分層 ===================== -->
+  <section id="topics">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">命名契約</div>
+        <h2>Topic 分層</h2>
+        <p class="lead">Command、Event、Status 走各自的 topic,方向清楚、ACL 好切。
+          <span class="mono">{deviceId}</span> 讓每把鎖天然隔離——ACL 只要綁 <span class="mono">locks/{自己的id}/#</span>。</p>
+      </div>
+      <div class="topics">
+        <div class="topic-row">
+          <code>locks/{deviceId}/command</code>
+          <span class="dir down">後端→鎖</span>
+          <span class="desc"><b>指令</b>:開／關鎖。載 commandId、TTL,以 QoS 1 發佈</span>
+        </div>
+        <div class="topic-row">
+          <code>locks/{deviceId}/command/ack</code>
+          <span class="dir up">鎖→後端</span>
+          <span class="desc"><b>受理回覆</b>:鎖已收到指令並開始處理(狀態機 → Accepted)</span>
+        </div>
+        <div class="topic-row">
+          <code>locks/{deviceId}/command/result</code>
+          <span class="dir up">鎖→後端</span>
+          <span class="desc"><b>執行結果</b>:成功／失敗 + 錯誤碼(狀態機 → Executed / Failed)</span>
+        </div>
+        <div class="topic-row">
+          <code>locks/{deviceId}/status</code>
+          <span class="dir up">鎖→後端</span>
+          <span class="desc"><b>在線狀態</b>:retained + LWT。斷線時 Broker 代發 offline</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 指令生命週期(時序圖) ===================== -->
+  <section id="lifecycle">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">可靠性 · 核心設計</div>
+        <h2>一次開鎖指令的生命週期</h2>
+        <p class="lead">QoS 1 保證「至少送達一次」,代價是<b>可能重送</b>。開鎖不能執行兩次,
+          所以真正擋住重複的不是 QoS,而是裝置端的<b>應用層冪等</b>——認 CommandId,不認送達次數。</p>
+      </div>
+
+      <figure>
+        <div class="fig-frame">
+          <svg viewBox="0 0 780 560" role="img" aria-label="開鎖指令時序:後端以 QoS1 發佈帶 commandId 與 TTL 的指令,裝置先做冪等檢查,回 ACK 後才執行開鎖並回傳結果;重送的同一 commandId 不會導致重複開鎖">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+              </marker>
+              <marker id="ah-brass" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--brass)"/>
+              </marker>
+            </defs>
+
+            <!-- lifeline headers -->
+            <g font-family="IBM Plex Sans, sans-serif">
+              <rect x="70" y="14" width="200" height="40" rx="7" fill="var(--brass-wash)" stroke="var(--brass)"/>
+              <text x="170" y="33" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Device Service</text>
+              <text x="170" y="48" text-anchor="middle" font-size="11" fill="var(--ink-soft)">後端 · 狀態機</text>
+
+              <rect x="510" y="14" width="200" height="40" rx="7" fill="var(--steel-wash)" stroke="var(--steel)"/>
+              <text x="610" y="33" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">門鎖裝置</text>
+              <text x="610" y="48" text-anchor="middle" font-size="11" fill="var(--ink-soft)">Lock · 韌體</text>
+            </g>
+
+            <!-- lifelines -->
+            <line x1="170" y1="54" x2="170" y2="524" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 4"/>
+            <line x1="610" y1="54" x2="610" y2="524" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 4"/>
+
+            <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="var(--ink)">
+              <!-- 1. command down -->
+              <text x="176" y="96" font-size="11" fill="var(--brass-deep)" font-family="IBM Plex Mono, monospace" font-weight="600">state = Pending</text>
+              <line x1="170" y1="112" x2="604" y2="112" stroke="currentColor" stroke-width="2" marker-end="url(#ah)"/>
+              <text x="390" y="104" text-anchor="middle">① PUBLISH · <tspan font-family="IBM Plex Mono, monospace" font-size="11">.../command</tspan></text>
+              <text x="390" y="128" text-anchor="middle" font-size="11" fill="var(--ink-soft)" font-family="IBM Plex Mono, monospace">commandId · TTL · QoS 1</text>
+
+              <!-- device self: idempotency check -->
+              <rect x="470" y="150" width="290" height="52" rx="7" fill="var(--surface-2)" stroke="var(--line)"/>
+              <text x="484" y="171" font-size="12" font-weight="600" fill="var(--ink)">冪等檢查:這個 commandId 看過嗎?</text>
+              <text x="484" y="189" font-size="11" fill="var(--ink-soft)">沒看過 → 往下執行 · 看過 → 直接回舊結果,不再開鎖</text>
+
+              <!-- 2. ack up -->
+              <text x="176" y="240" font-size="11" fill="var(--info)" font-family="IBM Plex Mono, monospace" font-weight="600">state → Accepted</text>
+              <line x1="610" y1="256" x2="176" y2="256" stroke="currentColor" stroke-width="2" marker-end="url(#ah)"/>
+              <text x="390" y="248" text-anchor="middle">② ACK · <tspan font-family="IBM Plex Mono, monospace" font-size="11">.../command/ack</tspan></text>
+
+              <!-- device self: execute -->
+              <rect x="470" y="278" width="290" height="38" rx="7" fill="var(--steel-wash)" stroke="var(--steel)"/>
+              <text x="484" y="302" font-size="12" font-weight="600" fill="var(--ink)">執行開鎖(僅首次執行)</text>
+
+              <!-- 3. result up -->
+              <text x="176" y="352" font-size="11" fill="var(--ok)" font-family="IBM Plex Mono, monospace" font-weight="600">state → Executed</text>
+              <line x1="610" y1="368" x2="176" y2="368" stroke="currentColor" stroke-width="2" marker-end="url(#ah)"/>
+              <text x="390" y="360" text-anchor="middle">③ RESULT · <tspan font-family="IBM Plex Mono, monospace" font-size="11">.../command/result</tspan></text>
+              <text x="390" y="384" text-anchor="middle" font-size="11" fill="var(--ink-soft)">success + errorCode · 並快取此結果</text>
+
+              <!-- separator -->
+              <line x1="70" y1="416" x2="710" y2="416" stroke="var(--line-soft)" stroke-width="1"/>
+              <text x="70" y="438" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-faint)" font-weight="600">重送 / 逾時分支</text>
+
+              <!-- retry dashed down -->
+              <line x1="170" y1="462" x2="604" y2="462" stroke="var(--brass)" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ah-brass)"/>
+              <text x="390" y="454" text-anchor="middle" fill="var(--brass-deep)">⟳ QoS1 重送同一 commandId</text>
+              <text x="390" y="486" text-anchor="middle" font-size="11" fill="var(--ink-soft)">裝置認得 → 不重複開鎖,只回快取結果</text>
+
+              <text x="170" y="512" text-anchor="middle" font-size="11" fill="var(--warn)" font-family="IBM Plex Mono, monospace" font-weight="600">TTL 內無 result → state = Expired</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>
+          <b>三段式握手</b>:指令 → ACK → 結果,對應狀態機三次轉移。QoS 1 的重送落在裝置端的
+          <b>冪等閘</b>之後,所以「至少一次」的網路語意不會變成「開兩次鎖」的實體後果。
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ===================== 狀態機 ===================== -->
+  <section id="statemachine">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">後端 · 指令狀態機</div>
+        <h2>Command State Machine</h2>
+        <p class="lead">後端替每筆指令維護一個明確狀態。查得到「卡在哪一步」,才有辦法對帳、重試與告警——
+          而不是只有「發出去了」跟「沒回應」兩種模糊狀態。</p>
+      </div>
+
+      <figure>
+        <div class="fig-frame">
+          <svg viewBox="0 0 820 300" role="img" aria-label="指令狀態機:Pending 收到 ACK 轉 Accepted;Accepted 依結果轉 Executed 或 Failed;Pending 或 Accepted 逾時未回則轉 Expired">
+            <defs>
+              <marker id="sm-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+              </marker>
+            </defs>
+            <g font-family="IBM Plex Sans, sans-serif" font-size="13">
+              <!-- Pending -->
+              <rect x="24" y="120" width="130" height="56" rx="9" fill="var(--surface-2)" stroke="var(--ink-faint)" stroke-width="1.5"/>
+              <text x="89" y="145" text-anchor="middle" font-weight="600" fill="var(--ink)">Pending</text>
+              <text x="89" y="163" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">已發佈,待受理</text>
+
+              <!-- Accepted -->
+              <rect x="290" y="120" width="130" height="56" rx="9" fill="var(--info-wash)" stroke="var(--info)" stroke-width="1.5"/>
+              <text x="355" y="145" text-anchor="middle" font-weight="600" fill="var(--ink)">Accepted</text>
+              <text x="355" y="163" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">已 ACK,執行中</text>
+
+              <!-- Executed -->
+              <rect x="632" y="40" width="150" height="56" rx="9" fill="var(--ok-wash)" stroke="var(--ok)" stroke-width="1.5"/>
+              <text x="707" y="65" text-anchor="middle" font-weight="600" fill="var(--ink)">Executed</text>
+              <text x="707" y="83" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">開鎖成功</text>
+
+              <!-- Failed -->
+              <rect x="632" y="120" width="150" height="56" rx="9" fill="var(--err-wash)" stroke="var(--err)" stroke-width="1.5"/>
+              <text x="707" y="145" text-anchor="middle" font-weight="600" fill="var(--ink)">Failed</text>
+              <text x="707" y="163" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">回報失敗 + 錯誤碼</text>
+
+              <!-- Expired -->
+              <rect x="632" y="200" width="150" height="56" rx="9" fill="var(--warn-wash)" stroke="var(--warn)" stroke-width="1.5"/>
+              <text x="707" y="225" text-anchor="middle" font-weight="600" fill="var(--ink)">Expired</text>
+              <text x="707" y="243" text-anchor="middle" font-size="10.5" fill="var(--ink-soft)">逾 TTL 未回應</text>
+
+              <!-- transitions -->
+              <g font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">
+                <!-- Pending -> Accepted -->
+                <line x1="154" y1="148" x2="284" y2="148" stroke="currentColor" stroke-width="1.8" marker-end="url(#sm-ah)"/>
+                <text x="219" y="140" text-anchor="middle" fill="var(--ink)">收到 ACK</text>
+                <!-- Accepted -> Executed -->
+                <path d="M420,138 C500,120 540,80 626,72" fill="none" stroke="currentColor" stroke-width="1.8" marker-end="url(#sm-ah)"/>
+                <text x="520" y="98" text-anchor="middle" fill="var(--ink)">result success</text>
+                <!-- Accepted -> Failed -->
+                <line x1="420" y1="148" x2="626" y2="148" stroke="currentColor" stroke-width="1.8" marker-end="url(#sm-ah)"/>
+                <text x="520" y="140" text-anchor="middle" fill="var(--ink)">result failure</text>
+                <!-- Pending -> Expired (curve down) -->
+                <path d="M89,176 C89,250 400,262 626,232" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sm-ah)"/>
+                <text x="300" y="278" text-anchor="middle">TTL 到期未 ACK</text>
+                <!-- Accepted -> Expired -->
+                <path d="M355,176 C355,210 500,224 626,224" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#sm-ah)"/>
+                <text x="500" y="204" text-anchor="middle">TTL 到期未 result</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+        <figcaption>
+          實線是正常路徑,虛線是<b>逾時</b>。<b>Executed / Failed / Expired</b> 為終態;
+          Expired 之後要不要重發,由業務決定(重發用新的 commandId,舊的仍留存以供對帳)。
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ===================== 上線/離線偵測 ===================== -->
+  <section id="presence">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">連線健康</div>
+        <h2>裝置上線 / 離線偵測</h2>
+        <p class="lead">三個機制疊起來,從「TCP 還活著嗎」一路到「後端記得它最後何時出現」,各補一段盲區。</p>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="ic">傳輸層</div>
+          <h3>Keep-Alive</h3>
+          <p>裝置定期送 <span class="mono">PINGREQ</span>,Broker 回 <span class="mono">PINGRESP</span>。
+            超過 1.5× 週期沒心跳,Broker 判定連線已死並觸發 LWT。抓的是<b>沉默斷線</b>。</p>
+        </div>
+        <div class="card">
+          <div class="ic">Broker 代理</div>
+          <h3>Last Will (LWT)</h3>
+          <p>連線時預先登記遺囑。一旦異常斷線,Broker 自動把 <span class="mono">offline</span>
+            發到 <span class="mono">.../status</span>(retained)。裝置<b>來不及說再見時,由 Broker 代發</b>。</p>
+        </div>
+        <div class="card">
+          <div class="ic">應用層</div>
+          <h3>lastSeen</h3>
+          <p>後端訂閱 status 與各回覆,持續更新每把鎖的<b>最後出現時間</b>。
+            這是給業務查詢與告警用的真實依據,不受單一 Broker 節點狀態影響。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 安全性 ===================== -->
+  <section id="security">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">橫切關注 · Security</div>
+        <h2>安全性:分階段上強度</h2>
+        <p class="lead">門鎖是實體安全裝置,連線安全不是加分項而是底線。依規模與威脅模型逐級加嚴。</p>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="ic">底線</div>
+          <h3>TLS</h3>
+          <p>所有連線加密傳輸,擋住竊聽與竄改。任何情況下的最低要求。</p>
+        </div>
+        <div class="card">
+          <div class="ic">雙向驗證</div>
+          <h3>Device Certificate / mTLS</h3>
+          <p>每把鎖帶自己的憑證,Broker 與裝置<b>互相驗身分</b>。
+            比帳密更難被複製,單把鎖外洩可單獨撤銷。</p>
+        </div>
+        <div class="card">
+          <div class="ic">最小權限</div>
+          <h3>Topic ACL</h3>
+          <p>每把鎖只能存取 <span class="mono">locks/{自己id}/#</span>。
+            即使一把鎖被攻陷,也<b>碰不到別把鎖</b>的 topic。</p>
+        </div>
+        <div class="card">
+          <div class="ic">生命週期</div>
+          <h3>Credential Rotation</h3>
+          <p>憑證／金鑰定期輪替,並保留撤銷機制。外洩時能快速換發,不必召回硬體。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 範例 vs 正式 ===================== -->
+  <section id="prod">
+    <div class="wrap">
+      <div class="sec-head">
+        <div class="eyebrow">落地</div>
+        <h2>展示範例 vs 正式環境</h2>
+        <p class="lead">附帶的 C# 範例把設計點跑起來給人看;正式環境的差異都在同一個維度上「換更硬的元件」,架構不變。</p>
+      </div>
+      <div class="tbl-frame">
+        <table>
+          <thead>
+            <tr><th>維度</th><th>展示範例</th><th>正式環境</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>冪等儲存</b></td>
+              <td class="dim"><span class="mono">ConcurrentDictionary</span> 記憶體</td>
+              <td>Redis(跨節點共享、可設 TTL 過期)</td>
+            </tr>
+            <tr>
+              <td><b>連線安全</b></td>
+              <td class="dim">明文 <span class="mono">1883</span>(本機 demo)</td>
+              <td>TLS + mTLS + topic ACL + 憑證輪替</td>
+            </tr>
+            <tr>
+              <td><b>Broker</b></td>
+              <td class="dim">單一 Mosquitto 容器</td>
+              <td>Broker 叢集(EMQX / HiveMQ),高可用、水平擴充</td>
+            </tr>
+            <tr>
+              <td><b>後端事件輸出</b></td>
+              <td class="dim">Console log 印狀態轉移</td>
+              <td>Device Service 後接 <b>Kafka / RabbitMQ</b>,把裝置訊息與內部 event-driven 解耦</td>
+            </tr>
+            <tr>
+              <td><b>狀態機儲存</b></td>
+              <td class="dim">行程內記憶體</td>
+              <td>持久化(DB),服務重啟後仍可續追、可對帳</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap endnote">
+    <p>附帶的可編譯 C# 範例(<span class="mono">.NET 10 · MQTTnet</span>)實作了上述四個關鍵點——
+      <span class="mono">Topics</span> 分層、裝置端冪等閘、後端指令狀態機、Last Will 上下線——
+      並附 <span class="mono">docker-compose</span> 起本機 Broker 與繁體中文 README。</p>
+  </div>
+
+</main>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('themeToggle');
+    var stored;
+    try { stored = localStorage.getItem('sl-theme'); } catch (e) { stored = null; }
+    if (stored === 'dark' || stored === 'light') root.setAttribute('data-theme', stored);
+
+    function current() {
+      var t = root.getAttribute('data-theme');
+      if (t) return t;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    btn.addEventListener('click', function () {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('sl-theme', next); } catch (e) {}
+    });
+  })();
+</script>

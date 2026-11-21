@@ -1,0 +1,11 @@
+services:
+  # 本機 demo 用的 MQTT broker。正式環境不會用單一 broker，
+  # 而是 broker 叢集(例如 EMQX / VerneMQ 叢集，或雲端 MQTT 服務)搭配 TLS + ACL。
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: smartlock-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
