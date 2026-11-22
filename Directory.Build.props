@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Commit packages.lock.json so restores are reproducible and SBOM tools can read the resolved packages. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>
